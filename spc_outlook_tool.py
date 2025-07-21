@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-SPC Outlook Tool - Downloads and processes SPC Day 1 outlooks from IEM
-Generates shapefiles and PNG images for tornado, wind, hail, and categorical outlooks
+SPC Outlook Tool - Downloads and processes SPC outlooks from IEM
+Supports Day 1/2/3 convective, thunderstorm, and fire weather outlooks
+Generates shapefiles, GeoJSON, PNG images, and interactive HTML maps
 """
 
 import os
@@ -54,28 +55,50 @@ COLORS = {
         '0.15': '#FFA500',
         '0.30': '#FF0000',
         '0.45': '#FF00FF',
-        '0.60': '#912CEE'
+        '0.60': '#912CEE',
+        'SIGN': '#FF00FF'  # Significant tornado
     },
     'wind': {
         '0.05': '#8B4513',
         '0.15': '#FFD700',
         '0.30': '#FF0000',
         '0.45': '#FF00FF',
-        '0.60': '#912CEE'
+        '0.60': '#912CEE',
+        'SIGN': '#FF00FF'  # Significant wind
     },
     'hail': {
         '0.05': '#8B4513',
         '0.15': '#FFD700',
         '0.30': '#FF0000', 
         '0.45': '#FF00FF',
-        '0.60': '#912CEE'
+        '0.60': '#912CEE',
+        'SIGN': '#FF00FF'  # Significant hail
+    },
+    'fire': {
+        'ELEV': '#FFA500',      # Elevated
+        'CRIT': '#FF0000',      # Critical
+        'EXTM': '#FF00FF',      # Extreme
+        'ISODRYT': '#8B4513',   # Isolated Dry Thunderstorm
+        'DRYT': '#D2691E',      # Dry Thunderstorm
+        'SCTDRYT': '#DEB887'    # Scattered Dry Thunderstorm
     }
 }
 
 
-def fetch_outlook_data(date_str, output_dir):
-    """Download Day 1 outlook data from IEM"""
-    print(f"\nFetching Day 1 outlook for {date_str}...")
+def fetch_outlook_data(date_str, output_dir, day=1, outlook_type='C'):
+    """Download outlook data from IEM
+    
+    Args:
+        date_str: Date in YYYY-MM-DD format
+        output_dir: Output directory
+        day: Outlook day (1, 2, or 3)
+        outlook_type: 'C' (Convective), 'F' (Fire Weather)
+    """
+    type_names = {
+        'C': 'Convective',
+        'F': 'Fire Weather'
+    }
+    print(f"\nFetching Day {day} {type_names.get(outlook_type, outlook_type)} outlook for {date_str}...")
     
     # Parse date and create UTC range
     dt = datetime.strptime(date_str, '%Y-%m-%d')
@@ -84,8 +107,8 @@ def fetch_outlook_data(date_str, output_dir):
     
     # Build request
     params = {
-        'd': '1',  # Day 1
-        'type': 'C',  # Convective
+        'd': str(day),
+        'type': outlook_type,
         'sts': start_utc,
         'ets': end_utc
     }
@@ -101,7 +124,7 @@ def fetch_outlook_data(date_str, output_dir):
             r = requests.get(BASE_URL, params=params, timeout=60)
             if r.status_code == 200:
                 # Save raw zip
-                zip_path = os.path.join(output_dir, f'raw_data_{date_str}.zip')
+                zip_path = os.path.join(output_dir, f'raw_data_day{day}_{date_str}.zip')
                 with open(zip_path, 'wb') as f:
                     f.write(r.content)
                 print(f"  Success! Downloaded {len(r.content)/1024:.1f} KB")
@@ -174,13 +197,16 @@ def process_shapefiles(zip_path, output_dir, date_str):
 
 
 def process_shapefiles_selective(zip_path, output_dir, date_str, hazard_types=None, 
-                                output_formats=None, cycle_filter=None):
+                                output_formats=None, cycle_filter=None, outlook_type='convective'):
     """Extract and process shapefiles with selective options"""
     print("\nProcessing shapefiles...")
     
     # Default to all if not specified
     if not hazard_types:
-        hazard_types = ['categorical', 'tornado', 'wind', 'hail']
+        if outlook_type == 'fire':
+            hazard_types = ['fire', 'dryt']
+        else:
+            hazard_types = ['categorical', 'tornado', 'wind', 'hail']
     if not output_formats:
         output_formats = ['shp', 'geojson']
     
@@ -236,7 +262,10 @@ def process_shapefiles_selective(zip_path, output_dir, date_str, hazard_types=No
                 'categorical': cycle_data[cycle_data['CATEGORY'] == 'CATEGORICAL'],
                 'tornado': cycle_data[cycle_data['CATEGORY'] == 'TORNADO'],
                 'wind': cycle_data[cycle_data['CATEGORY'] == 'WIND'],
-                'hail': cycle_data[cycle_data['CATEGORY'] == 'HAIL']
+                'hail': cycle_data[cycle_data['CATEGORY'] == 'HAIL'],
+                'fire': cycle_data[cycle_data['CATEGORY'].str.contains('FIRE', na=False)] if 'CATEGORY' in cycle_data.columns else cycle_data.iloc[0:0],
+                'dryt': cycle_data[cycle_data['CATEGORY'].str.contains('DRY', na=False)] if 'CATEGORY' in cycle_data.columns else cycle_data.iloc[0:0],  # Dry thunderstorm
+                'tstm': cycle_data[(cycle_data['CATEGORY'] == 'CATEGORICAL') & (cycle_data['THRESHOLD'] == 'TSTM')]  # Just thunderstorm areas
             }
             
             for hazard in hazard_types:
@@ -292,13 +321,16 @@ def get_us_states():
 
 
 def create_plots_selective(combined_data, cycles, output_dir, date_str, 
-                          hazard_types=None, cycle_filter=None):
+                          hazard_types=None, cycle_filter=None, outlook_type='convective'):
     """Generate PNG plots for selected hazard types and cycles"""
     print("\nGenerating plots...")
     
     # Default to all if not specified
     if not hazard_types:
-        hazard_types = ['categorical', 'tornado', 'wind', 'hail']
+        if outlook_type == 'fire':
+            hazard_types = ['fire', 'dryt']
+        else:
+            hazard_types = ['categorical', 'tornado', 'wind', 'hail']
     
     # Get US states for basemap
     us_states = get_us_states()
@@ -330,7 +362,10 @@ def create_plots_selective(combined_data, cycles, output_dir, date_str,
             'categorical': ('CATEGORICAL', 'Categorical Outlook'),
             'tornado': ('TORNADO', 'Tornado Probability'),
             'wind': ('WIND', 'Wind Probability'),
-            'hail': ('HAIL', 'Hail Probability')
+            'hail': ('HAIL', 'Hail Probability'),
+            'fire': ('FIRE', 'Fire Weather Outlook'),
+            'dryt': ('DRYT', 'Dry Thunderstorm Outlook'),
+            'tstm': ('TSTM', 'General Thunderstorm Outlook')
         }
         
         cycle_dir = os.path.join(output_dir, f'cycle_{cycle:02d}z')
@@ -343,7 +378,14 @@ def create_plots_selective(combined_data, cycles, output_dir, date_str,
             fig, ax = plt.subplots(figsize=(12, 8))
             
             # Filter data
-            plot_data = cycle_data[cycle_data['CATEGORY'] == category]
+            if category == 'FIRE':
+                plot_data = cycle_data[cycle_data['CATEGORY'].str.contains('FIRE', na=False)]
+            elif category == 'DRY':
+                plot_data = cycle_data[cycle_data['CATEGORY'].str.contains('DRY', na=False)]
+            elif category == 'TSTM':
+                plot_data = cycle_data[(cycle_data['CATEGORY'] == 'CATEGORICAL') & (cycle_data['THRESHOLD'] == 'TSTM')]
+            else:
+                plot_data = cycle_data[cycle_data['CATEGORY'] == category]
             
             # Plot US states basemap first
             if us_states is not None:
@@ -352,7 +394,11 @@ def create_plots_selective(combined_data, cycles, output_dir, date_str,
             if len(plot_data) > 0:
                 # Plot by threshold
                 thresholds = sorted(plot_data['THRESHOLD'].unique())
-                colors = COLORS.get(hazard_type, {})
+                # Get appropriate colors
+                if hazard_type in ['fire', 'dryt']:
+                    colors = COLORS.get('fire', {})
+                else:
+                    colors = COLORS.get(hazard_type, {})
                 
                 for thresh in thresholds:
                     thresh_data = plot_data[plot_data['THRESHOLD'] == thresh]
@@ -420,7 +466,14 @@ def create_plots(combined_data, cycles, output_dir, date_str):
             fig, ax = plt.subplots(figsize=(12, 8))
             
             # Filter data
-            plot_data = cycle_data[cycle_data['CATEGORY'] == category]
+            if category == 'FIRE':
+                plot_data = cycle_data[cycle_data['CATEGORY'].str.contains('FIRE', na=False)]
+            elif category == 'DRY':
+                plot_data = cycle_data[cycle_data['CATEGORY'].str.contains('DRY', na=False)]
+            elif category == 'TSTM':
+                plot_data = cycle_data[(cycle_data['CATEGORY'] == 'CATEGORICAL') & (cycle_data['THRESHOLD'] == 'TSTM')]
+            else:
+                plot_data = cycle_data[cycle_data['CATEGORY'] == category]
             
             # Plot US states basemap first
             if us_states is not None:
@@ -468,7 +521,7 @@ def create_plots(combined_data, cycles, output_dir, date_str):
 
 
 def create_html_map_selective(combined_data, cycles, output_dir, date_str,
-                             hazard_types=None, cycle_filter=None):
+                             hazard_types=None, cycle_filter=None, day=1, outlook_type='Convective'):
     """Create an interactive HTML map with selected hazards and cycles"""
     if not HAS_FOLIUM:
         print("\nSkipping HTML map (install folium: pip install folium)")
@@ -478,7 +531,10 @@ def create_html_map_selective(combined_data, cycles, output_dir, date_str,
     
     # Default to all if not specified
     if not hazard_types:
-        hazard_types = ['categorical', 'tornado', 'wind', 'hail']
+        if outlook_type == 'fire':
+            hazard_types = ['fire', 'dryt']
+        else:
+            hazard_types = ['categorical', 'tornado', 'wind', 'hail']
     
     # Create map
     m = folium.Map(location=[39, -98], zoom_start=4)
@@ -500,7 +556,10 @@ def create_html_map_selective(combined_data, cycles, output_dir, date_str,
         'categorical': ('Categorical', 'CATEGORICAL', COLORS['categorical'], 0.6),
         'tornado': ('Tornado', 'TORNADO', COLORS['tornado'], 0.5),
         'wind': ('Wind', 'WIND', COLORS['wind'], 0.5),
-        'hail': ('Hail', 'HAIL', COLORS['hail'], 0.5)
+        'hail': ('Hail', 'HAIL', COLORS['hail'], 0.5),
+        'fire': ('Fire Weather', 'FIRE', COLORS['fire'], 0.6),
+        'dryt': ('Dry Thunderstorm', 'DRYT', COLORS['fire'], 0.5),
+        'tstm': ('Thunderstorm', 'TSTM', COLORS['categorical'], 0.5)
     }
     
     for hazard_type in hazard_types:
@@ -510,7 +569,15 @@ def create_html_map_selective(combined_data, cycles, output_dir, date_str,
         display_name, category, color_map, opacity = hazard_configs[hazard_type]
         fg = folium.FeatureGroup(name=display_name, show=(hazard_type == hazard_types[0]))
         
-        hazard_data = cycle_data[cycle_data['CATEGORY'] == category].copy()
+        # Filter data based on hazard type
+        if category == 'FIRE':
+            hazard_data = cycle_data[cycle_data['CATEGORY'].str.contains('FIRE', na=False)].copy()
+        elif category == 'DRY':
+            hazard_data = cycle_data[cycle_data['CATEGORY'].str.contains('DRY', na=False)].copy()
+        elif category == 'TSTM':
+            hazard_data = cycle_data[(cycle_data['CATEGORY'] == 'CATEGORICAL') & (cycle_data['THRESHOLD'] == 'TSTM')].copy()
+        else:
+            hazard_data = cycle_data[cycle_data['CATEGORY'] == category].copy()
         
         if len(hazard_data) > 0:
             # Sort data properly
@@ -566,7 +633,7 @@ def create_html_map_selective(combined_data, cycles, output_dir, date_str,
                 top: 10px; left: 50px; width: 500px; height: 120px; 
                 background-color: white; border:2px solid grey; z-index:9999; 
                 font-size:14px; padding: 10px">
-    <b>SPC Day 1 Outlook - {date_str}</b><br>
+    <b>SPC Day {day} {outlook_type} Outlook - {date_str}</b><br>
     Showing: Cycle {display_cycle}Z<br>
     <small>Toggle layers using the control in upper right.<br>
     Click polygons for details. Data from Iowa Environmental Mesonet.</small>
@@ -679,18 +746,24 @@ def create_html_map(combined_data, cycles, output_dir, date_str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Download and process SPC Day 1 outlooks',
+        description='Download and process SPC outlooks (Day 1/2/3, Convective/Fire Weather)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  # Generate everything for a date
+  # Day 1 convective outlook (default)
   %(prog)s 2025-03-14
+  
+  # Day 2 outlook
+  %(prog)s 2025-03-14 --day 2
+  
+  # Day 3 outlook, just categorical
+  %(prog)s 2025-03-14 --day 3 --hazard categorical
+  
+  # Fire weather outlook
+  %(prog)s 2025-03-14 --type fire
   
   # Only tornado shapefiles
   %(prog)s 2025-03-14 --hazard tornado --format shp
-  
-  # Just categorical PNG for latest cycle
-  %(prog)s 2025-03-14 --hazard categorical --format png --cycle latest
   
   # Multiple hazards and formats
   %(prog)s 2025-03-14 --hazard tornado,wind --format shp,png
@@ -698,8 +771,13 @@ Examples:
     )
     parser.add_argument('date', help='Date to process (YYYY-MM-DD)')
     parser.add_argument('--output', '-o', default='./output', help='Output directory')
+    parser.add_argument('--day', '-d', type=int, default=1, choices=[1, 2, 3],
+                       help='Outlook day (1, 2, or 3; default: 1)')
+    parser.add_argument('--type', '-t', default='convective', 
+                       choices=['convective', 'fire'],
+                       help='Outlook type (default: convective)')
     parser.add_argument('--hazard', '-H', 
-                       help='Specific hazard types (comma-separated: categorical,tornado,wind,hail)')
+                       help='Specific hazard types (comma-separated: categorical,tornado,wind,hail,fire)')
     parser.add_argument('--format', '-f',
                        help='Output formats (comma-separated: shp,geojson,png,html)')
     parser.add_argument('--cycle', '-c',
@@ -719,10 +797,13 @@ Examples:
     hazard_types = None
     if args.hazard:
         hazard_types = [h.strip().lower() for h in args.hazard.split(',')]
-        valid_hazards = ['categorical', 'tornado', 'wind', 'hail']
+        if args.type == 'fire':
+            valid_hazards = ['fire', 'dryt']  # fire categories and dry thunderstorm
+        else:
+            valid_hazards = ['categorical', 'tornado', 'wind', 'hail', 'tstm']  # Added tstm
         for h in hazard_types:
             if h not in valid_hazards:
-                print(f"Error: Invalid hazard type '{h}'. Choose from: {', '.join(valid_hazards)}")
+                print(f"Error: Invalid hazard type '{h}' for {args.type} outlook. Choose from: {', '.join(valid_hazards)}")
                 sys.exit(1)
     
     output_formats = None
@@ -747,17 +828,22 @@ Examples:
             sys.exit(1)
     
     # Create output dir
-    output_dir = os.path.join(args.output, args.date)
+    outlook_type_code = 'F' if args.type == 'fire' else 'C'
+    output_subdir = f"{args.date}_day{args.day}_{args.type}"
+    output_dir = os.path.join(args.output, output_subdir)
     os.makedirs(output_dir, exist_ok=True)
     
     print(f"SPC Outlook Tool")
     print(f"================")
     print(f"Date: {args.date}")
+    print(f"Day: {args.day}")
+    print(f"Type: {args.type.title()}")
     print(f"Output: {output_dir}")
     
     try:
         # Download data
-        zip_path = fetch_outlook_data(args.date, output_dir)
+        zip_path = fetch_outlook_data(args.date, output_dir, day=args.day, 
+                                    outlook_type=outlook_type_code)
         
         # Quick mode - just download
         if args.quick:
@@ -766,18 +852,18 @@ Examples:
         
         # Process shapefiles
         combined_data, cycles = process_shapefiles_selective(
-            zip_path, output_dir, args.date, hazard_types, output_formats, cycle_filter
+            zip_path, output_dir, args.date, hazard_types, output_formats, cycle_filter, args.type
         )
         
         # Create plots if requested
         if not output_formats or 'png' in output_formats:
             create_plots_selective(combined_data, cycles, output_dir, args.date, 
-                                 hazard_types, cycle_filter)
+                                 hazard_types, cycle_filter, args.type)
         
         # Create HTML map if requested
         if not output_formats or 'html' in output_formats:
             create_html_map_selective(combined_data, cycles, output_dir, args.date,
-                                    hazard_types, cycle_filter)
+                                    hazard_types, cycle_filter, args.day, args.type.title())
         
         print(f"\n✓ Complete! Generated {len(cycles)} cycles x 4 hazard types")
         print(f"  Output directory: {output_dir}")

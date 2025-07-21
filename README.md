@@ -1,14 +1,23 @@
 # SPC Outlook Tool
 
-Downloads historical SPC Day 1 outlooks from Iowa Environmental Mesonet and generates shapefiles + PNG images.
+Downloads historical SPC outlooks from Iowa Environmental Mesonet (IEM) and generates shapefiles, GeoJSON, PNG images, and interactive HTML maps.
+
+## Features
+
+- **Multi-day support**: Day 1, 2, and 3 outlooks
+- **Outlook types**: Convective and Fire Weather
+- **Flexible output**: Shapefiles, GeoJSON, PNG maps, interactive HTML
+- **Selective generation**: Choose specific hazards, cycles, and formats
+- **Automatic fallback**: Handles different geometry types (layered/non-layered)
 
 ## What it does
 
-- Fetches all Day 1 outlook updates for a specific date (usually 5 per day)
-- Saves shapefiles for tornado, wind, hail, and categorical outlooks
+- Fetches SPC outlooks for any date (Day 1/2/3)
+- Supports both convective and fire weather outlooks
+- Saves shapefiles and GeoJSON for selected hazard types
 - Generates PNG maps with proper SPC colors and US state boundaries
-- Creates an interactive HTML map with all cycles and hazards
-- Outputs GeoJSON files too
+- Creates interactive HTML maps with toggleable layers
+- Flexible filtering by hazard type, cycle, and output format
 
 ## Setup
 
@@ -50,6 +59,16 @@ python spc_outlook_tool.py 2025-03-14 --hazard categorical --format png --cycle 
 python spc_outlook_tool.py 2025-03-14 --hazard tornado,wind --format shp,png
 ```
 
+**Get categorical outlook (includes all risk levels):**
+```bash
+python spc_outlook_tool.py 2025-03-14 --hazard categorical
+```
+
+**Get ONLY thunderstorm areas (TSTM):**
+```bash
+python spc_outlook_tool.py 2025-03-14 --hazard tstm
+```
+
 **Specific cycle (20Z):**
 ```bash
 python spc_outlook_tool.py 2025-03-14 --cycle 20z
@@ -60,11 +79,50 @@ python spc_outlook_tool.py 2025-03-14 --cycle 20z
 python spc_outlook_tool.py 2025-03-14 --quick
 ```
 
+### Multi-Day Examples
+
+**Day 2 outlook:**
+```bash
+python spc_outlook_tool.py 2025-03-14 --day 2
+```
+
+**Day 3 categorical only:**
+```bash
+python spc_outlook_tool.py 2025-03-14 --day 3 --hazard categorical
+```
+
+### Fire Weather Examples
+
+**Fire weather outlook (Day 1):**
+```bash
+python spc_outlook_tool.py 2025-07-20 --type fire
+```
+
+**Fire weather Day 2:**
+```bash
+python spc_outlook_tool.py 2025-07-20 --type fire --day 2
+```
+
+**Just fire shapefiles:**
+```bash
+python spc_outlook_tool.py 2025-07-20 --type fire --hazard fire --format shp
+```
+
 ### Options
 
+- `--day, -d`: Outlook day
+  - Options: `1`, `2`, `3`
+  - Default: `1`
+  
+- `--type, -t`: Outlook type
+  - Options: `convective`, `fire`
+  - Default: `convective`
+
 - `--hazard, -H`: Specific hazard types (comma-separated)
-  - Options: `categorical`, `tornado`, `wind`, `hail`
+  - For convective: `categorical`, `tornado`, `wind`, `hail`, `tstm`
+  - For fire: `fire`, `dryt`
   - Default: all hazards
+  - Note: `tstm` extracts only the general thunderstorm areas (TSTM threshold)
   
 - `--format, -f`: Output formats (comma-separated)
   - Options: `shp`, `geojson`, `png`, `html`
@@ -81,17 +139,37 @@ python spc_outlook_tool.py 2025-03-14 --quick
 
 ### Examples
 
-**Friend wants just tornado shapefiles for March 14:**
+**Day 1 outlook (default):**
+```bash
+python spc_outlook_tool.py 2025-03-14
+```
+
+**Day 2 outlook:**
+```bash
+python spc_outlook_tool.py 2025-03-14 --day 2
+```
+
+**Day 3 categorical outlook only:**
+```bash
+python spc_outlook_tool.py 2025-03-14 --day 3 --hazard categorical
+```
+
+**Fire weather outlook:**
+```bash
+python spc_outlook_tool.py 2025-03-14 --type fire
+```
+
+**Just tornado shapefiles:**
 ```bash
 python spc_outlook_tool.py 2025-03-14 --hazard tornado --format shp
 ```
 
-**Need PNG maps of categorical and tornado for latest update:**
+**PNG maps of categorical and tornado for latest update:**
 ```bash
 python spc_outlook_tool.py 2025-03-14 --hazard categorical,tornado --format png --cycle latest
 ```
 
-**Just want the interactive HTML map with all hazards:**
+**Interactive HTML map with all hazards:**
 ```bash
 python spc_outlook_tool.py 2025-03-14 --format html
 ```
@@ -100,8 +178,8 @@ python spc_outlook_tool.py 2025-03-14 --format html
 
 ```
 output/
-└── 2025-03-14/
-    ├── raw_data_2025-03-14.zip          # Original IEM download
+└── 2025-03-14_day1_convective/
+    ├── raw_data_day1_2025-03-14.zip     # Original IEM download
     ├── interactive_map_2025-03-14.html  # Interactive web map
     ├── cycle_01z/
     │   ├── categorical_2025-03-14_01z.shp  # Shapefiles
@@ -120,27 +198,45 @@ output/
     └── cycle_20z/
 ```
 
-## Notes
+## Important Notes
 
-- Data comes from IEM's unofficial archive (not official SPC)
-- Archive goes back to 1987 for convective outlooks
-- Each day typically has 5 outlook updates (01Z, 06Z, 13Z, 16Z, 20Z)
-- All times are UTC
+- **Data source**: Iowa Environmental Mesonet (unofficial SPC archive)
+- **Archive coverage**: Back to 1987 for convective outlooks
+- **Update cycles vary by day**:
+  - Day 1: 01Z, 06Z, 13Z, 16Z, 20Z (5 updates)
+  - Day 2: 07Z, 17Z (2 updates)
+  - Day 3: 08Z, 20Z (2 updates)
+- **Fire weather cycles**: 07Z, 17Z
+- **Times**: All times are UTC
+- **Fire weather categories**: ELEV (Elevated), CRIT (Critical), EXTM (Extreme)
 
 ## Hazard Types
 
+### Convective Outlooks
+
 **Categorical**: General risk levels
-- TSTM (Thunder)
-- MRGL (Marginal)  
-- SLGT (Slight)
-- ENH (Enhanced)
-- MDT (Moderate)
-- HIGH (High)
+- TSTM (General Thunder) - The basic thunderstorm outlook
+- MRGL (Marginal Risk)  
+- SLGT (Slight Risk)
+- ENH (Enhanced Risk)
+- MDT (Moderate Risk)
+- HIGH (High Risk)
+
+**Note**: The thunderstorm outlook (TSTM) is included in the categorical outlook. When you request categorical data, you get all risk levels including the general thunderstorm areas.
 
 **Probabilistic**: Specific hazard probabilities
-- Tornado: 2%, 5%, 10%, 15%, 30%, 45%, 60%
-- Wind: 5%, 15%, 30%, 45%, 60%
-- Hail: 5%, 15%, 30%, 45%, 60%
+- Tornado: 2%, 5%, 10%, 15%, 30%, 45%, 60%, SIGN (Significant)
+- Wind: 5%, 15%, 30%, 45%, 60%, SIGN (Significant)
+- Hail: 5%, 15%, 30%, 45%, 60%, SIGN (Significant)
+
+### Fire Weather Outlooks
+
+- ELEV (Elevated)
+- CRIT (Critical)
+- EXTM (Extreme)
+- ISODRYT (Isolated Dry Thunderstorm)
+- DRYT (Dry Thunderstorm)
+- SCTDRYT (Scattered Dry Thunderstorm)
 
 ## Troubleshooting
 
@@ -149,3 +245,14 @@ output/
 **422 Error**: The tool automatically tries different data formats. If it still fails, that date might not be available.
 
 **Missing dependencies**: Make sure geopandas is installed with all its dependencies (GDAL, etc). Conda handles this better than pip.
+
+**Fire weather not showing**: Fire weather outlooks may not be available for all dates. They're typically issued during fire season.
+
+**Empty PNG/plots**: Some hazard types may not have data for the selected date. This is normal.
+
+## Data Availability
+
+- **Convective outlooks**: Available most days during severe weather season (March-September)
+- **Fire weather outlooks**: Primarily during fire season (varies by region)
+- **Historical data**: Goes back to 1987 for convective outlooks
+- **Real-time data**: Usually available within minutes of SPC issuance
