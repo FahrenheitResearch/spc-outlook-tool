@@ -231,6 +231,10 @@ def process_shapefiles_selective(zip_path, output_dir, date_str, hazard_types=No
         combined = pd.concat(all_data, ignore_index=True)
         print(f"  Loaded {len(combined)} polygons")
         
+        # Fix for old data where 20z is sometimes -1
+        if 'CYCLE' in combined.columns:
+            combined['CYCLE'] = combined['CYCLE'].replace(-1, 20)
+        
         # Get unique cycles
         all_cycles = sorted(combined['CYCLE'].unique()) if 'CYCLE' in combined.columns else [0]
         print(f"  Found cycles: {all_cycles}")
@@ -242,6 +246,9 @@ def process_shapefiles_selective(zip_path, output_dir, date_str, hazard_types=No
                 print(f"  Using latest cycle: {cycles[0]}Z")
             else:
                 cycle_num = int(cycle_filter.replace('z', ''))
+                # Handle the 1630z case to match IEM's '16'
+                if cycle_num == 1630:
+                    cycle_num = 16
                 cycles = [c for c in all_cycles if c == cycle_num]
                 if not cycles:
                     print(f"  Warning: Cycle {cycle_filter} not found, using all cycles")
@@ -251,7 +258,10 @@ def process_shapefiles_selective(zip_path, output_dir, date_str, hazard_types=No
         
         # Process each cycle
         for cycle in cycles:
-            print(f"\n  Processing cycle {cycle}Z...")
+            # Always use '1630z' for the 16z cycle in filenames
+            cycle_str = '1630z' if cycle == 16 else f"{cycle:02d}z"
+
+            print(f"\n  Processing cycle {cycle_str}...")
             cycle_data = combined[combined['CYCLE'] == cycle] if 'CYCLE' in combined.columns else combined
             
             # Create cycle dir only if needed
@@ -275,17 +285,17 @@ def process_shapefiles_selective(zip_path, output_dir, date_str, hazard_types=No
                 
                 # Create cycle dir on first use
                 if cycle_dir is None:
-                    cycle_dir = os.path.join(output_dir, f'cycle_{cycle:02d}z')
+                    cycle_dir = os.path.join(output_dir, f'cycle_{cycle_str}')
                     os.makedirs(cycle_dir, exist_ok=True)
                 
                 # Save in requested formats
                 if 'shp' in output_formats:
-                    shp_path = os.path.join(cycle_dir, f'{hazard}_{date_str}_{cycle:02d}z.shp')
+                    shp_path = os.path.join(cycle_dir, f'{hazard}_{date_str}_{cycle_str}.shp')
                     data.to_file(shp_path)
                     print(f"    Saved {hazard}.shp: {len(data)} polygons")
                     
                 if 'geojson' in output_formats:
-                    json_path = os.path.join(cycle_dir, f'{hazard}_{date_str}_{cycle:02d}z.geojson')
+                    json_path = os.path.join(cycle_dir, f'{hazard}_{date_str}_{cycle_str}.geojson')
                     data.to_file(json_path, driver='GeoJSON')
                     print(f"    Saved {hazard}.geojson")
                     
@@ -335,19 +345,14 @@ def create_plots_selective(combined_data, cycles, output_dir, date_str,
     # Get US states for basemap
     us_states = get_us_states()
     
-    # Filter cycles if needed
+    # The 'cycles' list is already filtered by the processing function
     plot_cycles = cycles
-    if cycle_filter:
-        if cycle_filter == 'latest':
-            plot_cycles = [cycles[-1]]
-        else:
-            cycle_num = int(cycle_filter.replace('z', ''))
-            plot_cycles = [c for c in cycles if c == cycle_num]
-            if not plot_cycles:
-                plot_cycles = cycles
     
     for cycle in plot_cycles:
-        print(f"\n  Plotting cycle {cycle}Z...")
+        # Always use '1630z' for the 16z cycle in filenames
+        cycle_str = '1630z' if cycle == 16 else f"{cycle:02d}z"
+
+        print(f"\n  Plotting cycle {cycle_str}...")
         cycle_data = combined_data[combined_data['CYCLE'] == cycle] if 'CYCLE' in combined_data.columns else combined_data
         
         # Get issue time for title
@@ -355,7 +360,7 @@ def create_plots_selective(combined_data, cycles, output_dir, date_str,
             prod = cycle_data.iloc[0]['PRODISS']
             issue_time = f"{prod[:4]}-{prod[4:6]}-{prod[6:8]} {prod[8:10]}:{prod[10:12]}Z"
         else:
-            issue_time = f"Cycle {cycle}Z"
+            issue_time = f"Cycle {cycle_str}"
         
         # Create plots for requested hazards
         plot_configs = {
@@ -368,7 +373,7 @@ def create_plots_selective(combined_data, cycles, output_dir, date_str,
             'tstm': ('TSTM', 'General Thunderstorm Outlook')
         }
         
-        cycle_dir = os.path.join(output_dir, f'cycle_{cycle:02d}z')
+        cycle_dir = os.path.join(output_dir, f'cycle_{cycle_str}')
         
         for hazard_type in hazard_types:
             if hazard_type not in plot_configs:
@@ -429,7 +434,7 @@ def create_plots_selective(combined_data, cycles, output_dir, date_str,
             
             # Save
             os.makedirs(cycle_dir, exist_ok=True)
-            plot_path = os.path.join(cycle_dir, f'{hazard_type}_{date_str}_{cycle:02d}z.png')
+            plot_path = os.path.join(cycle_dir, f'{hazard_type}_{date_str}_{cycle_str}.png')
             plt.tight_layout()
             plt.savefig(plot_path, dpi=200, bbox_inches='tight')
             plt.close()
@@ -540,14 +545,18 @@ def create_html_map_selective(combined_data, cycles, output_dir, date_str,
     m = folium.Map(location=[39, -98], zoom_start=4)
     
     # Get cycle to display
+    display_cycle = cycles[-1]  # Default to latest
     if cycle_filter:
         if cycle_filter == 'latest':
             display_cycle = cycles[-1]
         else:
-            cycle_num = int(cycle_filter.replace('z', ''))
-            display_cycle = cycle_num if cycle_num in cycles else cycles[-1]
-    else:
-        display_cycle = cycles[-1]  # Default to latest
+            cycle_num_int = int(cycle_filter.replace('z', ''))
+            mapped_cycle_num = 16 if cycle_num_int == 1630 else cycle_num_int
+            if mapped_cycle_num in cycles:
+                display_cycle = mapped_cycle_num
+
+    # Always use '1630Z' for the 16z cycle in the title
+    display_cycle_str = '1630Z' if display_cycle == 16 else f"{display_cycle}Z"
     
     cycle_data = combined_data[combined_data['CYCLE'] == display_cycle] if 'CYCLE' in combined_data.columns else combined_data
     
@@ -634,7 +643,7 @@ def create_html_map_selective(combined_data, cycles, output_dir, date_str,
                 background-color: white; border:2px solid grey; z-index:9999; 
                 font-size:14px; padding: 10px">
     <b>SPC Day {day} {outlook_type} Outlook - {date_str}</b><br>
-    Showing: Cycle {display_cycle}Z<br>
+    Showing: Cycle {display_cycle_str}<br>
     <small>Toggle layers using the control in upper right.<br>
     Click polygons for details. Data from Iowa Environmental Mesonet.</small>
     </div>

@@ -129,7 +129,7 @@ python spc_outlook_tool.py 2025-07-20 --type fire --hazard fire --format shp
   - Default: all formats
   
 - `--cycle, -c`: Specific cycle or "latest"
-  - Options: `01z`, `06z`, `13z`, `16z`, `20z`, `latest`
+  - Options: `01z`, `06z`, `13z`, `1630z`, `20z`, `latest`
   - Default: all cycles
   
 - `--output, -o`: Output directory
@@ -194,7 +194,7 @@ output/
     ├── cycle_06z/
     │   └── ... (same structure)
     ├── cycle_13z/
-    ├── cycle_16z/
+    ├── cycle_1630z/
     └── cycle_20z/
 ```
 
@@ -203,7 +203,7 @@ output/
 - **Data source**: Iowa Environmental Mesonet (unofficial SPC archive)
 - **Archive coverage**: Back to 1987 for convective outlooks
 - **Update cycles vary by day**:
-  - Day 1: 01Z, 06Z, 13Z, 16Z, 20Z (5 updates)
+  - Day 1: 01Z, 06Z, 13Z, 1630Z, 20Z (5 updates)
   - Day 2: 07Z, 17Z (2 updates)
   - Day 3: 08Z, 20Z (2 updates)
 - **Fire weather cycles**: 07Z, 17Z
