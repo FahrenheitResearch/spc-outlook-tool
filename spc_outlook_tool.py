@@ -781,7 +781,7 @@ Examples:
     parser.add_argument('--format', '-f',
                        help='Output formats (comma-separated: shp,geojson,png,html)')
     parser.add_argument('--cycle', '-c',
-                       help='Specific cycle (01z,06z,13z,16z,20z) or "latest"')
+                       help='Specific cycle (01z,06z,13z,1630z,20z) or "latest" (16z is an alias for 1630z)')
     parser.add_argument('--quick', action='store_true',
                        help='Quick mode - only download and extract, no processing')
     args = parser.parse_args()
@@ -820,11 +820,17 @@ Examples:
         # Validate cycle format
         try:
             cycle_num = int(cycle_filter.replace('z', ''))
-            if cycle_num not in [1, 6, 13, 16, 20]:
-                print(f"Error: Invalid cycle. Choose from: 01z, 06z, 13z, 16z, 20z, latest")
+            # Allow 16z as an alias for 1630z
+            if cycle_num == 16:
+                cycle_num = 1630
+                cycle_filter = '1630z'
+            
+            valid_cycles = [1, 6, 13, 1630, 20]
+            if cycle_num not in valid_cycles:
+                print(f"Error: Invalid cycle. Choose from: 01z, 06z, 13z, 1630z, 20z, latest")
                 sys.exit(1)
         except:
-            print(f"Error: Invalid cycle format. Use: 01z, 06z, 13z, 16z, 20z, or latest")
+            print(f"Error: Invalid cycle format. Use: 01z, 06z, 13z, 1630z, 20z, or latest")
             sys.exit(1)
     
     # Create output dir
