@@ -2,6 +2,8 @@
 
 A command-line tool to download, process, and visualize historical SPC (Storm Prediction Center) outlooks from the Iowa Environmental Mesonet (IEM).
 
+**Also includes**: `iem_warnings_tool.py` for fetching current NWS watches/warnings as GeoJSON. See [README_warnings.md](README_warnings.md) for details.
+
 ## Features
 
 - **Comprehensive Coverage**: Fetches Day 1, 2, and 3 outlooks for both Convective and Fire Weather.
